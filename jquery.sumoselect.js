@@ -145,14 +145,17 @@
 
                     $(opts).each(function (i, opt) {       // parsing options to li
                         opt = $(opt);
-                        lis.push(opt.is('optgroup') ?
-                            $('<li class="group ' + (opt[0].disabled ? 'disabled' : '') + '"><label>' + opt.attr('label') + '</label><ul></ul></li>')
-                                .find('ul')
-                                .append(O.prepItems(opt.children(), opt[0].disabled))
-                                .end()
-                            :
-                            O.createLi(opt, d)
-                        );
+                        if (opt.is('optgroup')) {
+                            var group = $('<li class="group ' + (opt[0].disabled ? 'disabled' : '') + '"><label>' + opt.attr('label') + '</label><ul></ul></li>');
+                            group.find('ul').append(O.prepItems(opt.children(), opt[0].disabled));
+                            if (O.is_multi && !opt[0].disabled) {
+                                group.children('label').before('<span><i></i></span>');
+                                O.onGroupClick(group);
+                            }
+                            lis.push(group);
+                        } else {
+                            lis.push(O.createLi(opt, d));
+                        }
                     });
                     return lis;
                 },
@@ -319,31 +322,81 @@
                 selAllState: function () {
                     var O = this;
 
-                    if (!settings.selectAll || !O.is_multi) return;
+                    if (!O.is_multi) return;
 
                     if (O.setAllStateDebouncer) {
                         clearTimeout(O.setAllStateDebouncer);
                     }
 
                     O.setAllStateDebouncer = setTimeout(function () {
+                        O.optDiv.find('li.group').each(function () {
+                            O.groupState($(this));
+                        });
+
+                        if (!settings.selectAll || !O.selAll) return;
+
                         var selectedCount = 0,
-                            disabledCount = 0;
+                            enabledCount = 0;
 
                         O.optDiv.find('li.opt').not('.hidden').each(function (ix, e) {
                             if ($(e).hasClass('selected')) selectedCount++;
-                            if (!$(e).hasClass('disabled')) disabledCount++;
+                            if (!$(e).hasClass('disabled')) enabledCount++;
                         });
 
                         //select all checkbox state change.
 
-                        if (selectedCount === disabledCount) {
+                        if (enabledCount > 0 && selectedCount === enabledCount) {
                             O.selAll.removeClass('partial').addClass('selected');
                         } else if (selectedCount === 0) {
                             O.selAll.removeClass('selected partial');
                         } else {
-                            O.selAll.addClass('partial');
+                            O.selAll.addClass('partial').removeClass('selected');
                         }
                     }, 50);
+                },
+
+                //## Sync optgroup checkbox state (none / partial / all)
+                groupState: function (group) {
+                    var O = this;
+                    if (!O.is_multi || !group || !group.length) return;
+
+                    var opts = group.find('li.opt').not('.disabled, .hidden'),
+                        selected = opts.filter('.selected').length;
+
+                    if (!opts.length || selected === 0) {
+                        group.removeClass('selected partial');
+                    } else if (selected === opts.length) {
+                        group.removeClass('partial').addClass('selected');
+                    } else {
+                        group.removeClass('selected').addClass('partial');
+                    }
+                },
+
+                //## Clicking an optgroup label toggles all visible options in that group
+                onGroupClick: function (group) {
+                    var O = this;
+                    group.children('label, span').on('click', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        if (group.hasClass('disabled')) return;
+
+                        var opts = group.find('li.opt').not('.disabled, .hidden');
+                        if (!opts.length) return;
+
+                        var select = opts.filter('.selected').length !== opts.length;
+
+                        opts.each(function () {
+                            var li = $(this),
+                                isSelected = li.hasClass('selected');
+
+                            if (select && !isSelected) {
+                                li.trigger('click');
+                            } else if (!select && isSelected) {
+                                li.trigger('click');
+                            }
+                        });
+                    });
                 },
 
                 showOpts: function () {
@@ -526,6 +579,7 @@
                                 O.cooperativeMultitaskingDelegateTimeout,
                                 li);
 
+                            O.groupState(li.closest('li.group'));
                             O.selAllState();
                         }
                         else {
